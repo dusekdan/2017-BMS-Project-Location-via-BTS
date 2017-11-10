@@ -104,6 +104,7 @@ void loadBTSRecords()
 
                 case 4:
                     station.GPS = token;
+                    // Calculate decimal values for GPS 
                 break;
             }
 
