@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 #include "project.h"
 
 void processParameters(int argc, char *argv[]);
@@ -18,7 +19,8 @@ void writeOutputFile(/* DATA PLACEHOLDER */);
 /*void loadBTSRecords(uint16_t lac, uint16_t cid);*/
 void loadBTSRecords();
 void loadNearestStations();
-
+std::vector<T_MatchedStation> prepareMatchingStation(std::vector<T_NearestStation> nearbyStations, std::vector<T_Station> allStations); 
+T_GPS convertStringGPS(std::string GPS);
 
 // Input file name
 std::string csvFile;
@@ -35,6 +37,18 @@ int main(int argc, char *argv[])
         // * Load data from input csv file
     loadNearestStations();
     loadBTSRecords();
+    std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, AllStations);
+
+    /* DEBUG Returned matching stations */
+    /* 
+    int counter = 0;
+    for(std::vector<T_MatchedStation>::iterator it = matchingStations.begin(); it != matchingStations.end(); ++it)
+    {
+        std::cout << "Relevant station " << std::to_string(counter)  << "CID " << it->cid << " and gps for the doubtful " << it->GPS << "\n";
+        counter++;
+    }
+
+    */
         // * Validate input file (permissions) - validateCSVFile()
         // * loadBTSRecords()
         // * Possible exit-code 2: invalid input file / unable to read ...
@@ -52,6 +66,57 @@ int main(int argc, char *argv[])
     // std::cout << "Parameter count: " << std::to_string(argc) << "\n";
     // std::cout << "Input csv file: " << csvFile << "\n";
     return 0;   
+}
+
+std::vector<T_MatchedStation> prepareMatchingStation(std::vector<T_NearestStation> nearbyStations, std::vector<T_Station> allStations)
+{
+    std::vector<T_MatchedStation> relevantStations;
+    
+    // Simplify searching complexity    
+    std::vector<uint16_t> Cids;
+    std::vector<uint16_t> Lacs;
+    for (std::vector<T_NearestStation>::iterator it = nearbyStations.begin(); it != nearbyStations.end(); ++it)
+    {
+        Cids.push_back(it->cid);
+        Lacs.push_back(it->lac);
+    }
+
+    for (std::vector<T_Station>::iterator it = allStations.begin(); it != allStations.end(); ++it)
+    {
+        // Filter only matching records
+        bool cidMatches = std::find(Cids.begin(), Cids.end(), it->cid) != Cids.end();
+        bool lacMatches = std::find(Lacs.begin(), Lacs.end(), it->lac) != Lacs.end();
+        if(cidMatches && lacMatches)
+        {
+            T_MatchedStation newStation;
+            newStation.cid = it->cid;
+            newStation.lac = it->lac;
+            newStation.GPS = it->GPS;
+            // TODO: Calculate double GPS here? 
+            newStation.GPSCords = convertStringGPS(it->GPS);
+
+            relevantStations.push_back(newStation);
+        }
+    }
+
+    // Debug part
+    /*int counter = 0;
+    for(std::vector<T_MatchedStation>::iterator it = relevantStations.begin(); it != relevantStations.end(); ++it)
+    {
+        std::cout << "Relevant station " << std::to_string(counter)  << "CID" << it->cid << " and gps for the doubtful " << it->GPS << "\n";
+        counter++;
+    }*/
+
+
+    return relevantStations;
+}
+
+T_GPS convertStringGPS(std::string GPS)
+{
+    std::cout << "I will be converting gps " << GPS << " to T_GPS.\n";
+
+    T_GPS returnxdummy;
+    return returnxdummy;
 }
 
 void loadBTSRecords()
@@ -103,8 +168,8 @@ void loadBTSRecords()
                 break;
 
                 case 4:
-                    station.GPS = token;
-                    // Calculate decimal values for GPS 
+                    station.GPS = token;    
+                    // Calculate decimal values for GPS
                 break;
             }
 
@@ -122,13 +187,13 @@ void loadBTSRecords()
     }
 
     // Debug dump nearest stations
-    std::cout << "Iterating over all stations structure \n";
+    /*std::cout << "Iterating over all stations structure \n";
     for (std::vector<T_Station>::iterator it = AllStations.begin(); it != AllStations.end(); ++it)
     {
         std::cout << "LAC: " << std::to_string(it->lac) << " CID: " << std::to_string(it->cid) << " BCH: " << std::to_string(it->bch);
         std::cout << " Localization:"  << it->localization << " GPS: " << it->GPS;
         std::cout << "\n";
-    }
+    }*/
 }
 
 
