@@ -4,7 +4,22 @@
  * BMS class of 2017/2018, Project #1
  */
 
-// TODO: Put function headers here
+#define USER_EQUIPMENT_HEIGTH 1.2
+#define ANTENNA_CORRECTION_FACTOR -0.749018
+#define FREQUENCE_OF_TRANSMISSION 900
+#define GOOGLE_MAPS_URL_BASE "maps.google.com/maps?q="
+#define BMS_OUTPUT_FILE "out.txt"
+
+#define EMPTY_STRING ""
+
+#include <iostream>
+#include <stdlib.h>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <algorithm>
+#include <math.h>
 
 
 /**
@@ -57,3 +72,21 @@ typedef struct
 	double distance; 
 } T_MatchedStation;
 
+
+/**
+ * Function headers
+ */
+std::string processParameters(int argc, char *argv[]);
+
+std::vector<T_Station> loadBTSRecords(std::string BTSFile);
+std::vector<T_NearestStation> loadNearestStations(std::string csvFile);
+std::vector<T_MatchedStation> prepareMatchingStation(std::vector<T_NearestStation> nearbyStations, std::vector<T_Station> allStations); 
+
+T_GPS convertStringGPS(std::string GPS);
+double getDegreesOnly(double degrees, double minutes, double seconds);
+double calculateDistanceToStation(double antennaCorrectionFactor, double transmissionFrequency, double mobileAntenaHeight);
+
+void writeOutputFile(std::string data);
+std::string generateGoogleMapsLink(T_GPS coords);
+
+double helper_calculateAntennaCorrectionFactor(double transmissionFrequency, double mobileAntennaHeight);

@@ -3,52 +3,38 @@
  * Brno, University of Technology
  * BMS class of 2017/2018, Project #1
  */
-
-#define ANTENNA_CORRECTION_FACTOR -0.749018
-#define FREQUENCE_OF_TRANSMISSION 900
-
-#include <iostream>
-#include <stdlib.h>
-#include <string>
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <algorithm>
-#include <math.h>
 #include "project.h"
 
-void processParameters(int argc, char *argv[]);
-void terminateExecutionWith(int exitCode, std::string message = "");
-void writeOutputFile(/* DATA PLACEHOLDER */);
-void loadBTSRecords();
-void loadNearestStations();
-std::vector<T_MatchedStation> prepareMatchingStation(std::vector<T_NearestStation> nearbyStations, std::vector<T_Station> allStations); 
-T_GPS convertStringGPS(std::string GPS);
-double getDegreesOnly(double degrees, double minutes, double seconds);
-double calculateDistanceToStation(double antennaCorrectionFactor, double transmissionFrequency, double mobileAntenaHeight);
-
-double helper_calculateAntennaCorrectionFactor(double transmissionFrequency, double mobileAntennaHeight);
-// Input file name
-std::string csvFile;
-std::string btsCsvFile = "bts.csv";
-
-std::vector<T_NearestStation> nearestStations;
-std::vector<T_Station> AllStations;
-
-// TODO: Rewrite functions so they are not unnecessary void
-// TODO: Get rid of global variables
-// TODO: Improve error handling within main || introduce exceptions
 // TODO: Consider reading signal, antH and power as double. Or will it always be int?!
-// TODO: Move function definitions to header file
 
 int main(int argc, char *argv[])
 {
-    // TODO: Polish this to use return values/exception handling
-    processParameters(argc, argv);
-    loadNearestStations();
-    loadBTSRecords();
+    // Input files 
+    std::string BTSFile = "bts.csv";
+    std::string inputFile = processParameters(argc, argv);
+    if (inputFile.compare(EMPTY_STRING) == 0)
+    {
+        std::cerr << "Please specify input file as the first parameter.\n";
+        return 1;
+    }
 
-    std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, AllStations);
+    // Load information about stations
+    std::vector<T_NearestStation> nearestStations = loadNearestStations(inputFile);
+    if (nearestStations.empty())
+    {
+        std::cerr << "Input file could not be opened, or error occured while reading it. Fix the file and try again, please.\n";
+        return 2;
+    }
+
+    std::vector<T_Station> allStations = loadBTSRecords(BTSFile);
+    if (allStations.empty())
+    {
+        std::cerr << "Input file BTS.csv could not be opened, or error occured while reading it. Fix the file and try again, please.\n";
+        return 2;
+    }
+
+    std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, allStations); // TODO: What if no matching stations are found?
+
 
     /* DEBUG Returned matching stations */
     int counter = 0;
@@ -56,16 +42,35 @@ int main(int argc, char *argv[])
     {
         std::cout << "Relevant station " << std::to_string(counter)  << " CID " << it->cid << " and gps for the doubtful " << it->GPS << "\n";
         std::cout << "\tGPS struct: latitude=" << std::to_string(it->GPSCords.latitude) << ", longitude=" << std::to_string(it->GPSCords.longitude) << "\n";
-        std::cout << "\tDistance: " << std::to_string(it->distance) << "\n";
+        std::cout << "\tDistance: " << std::to_string(it->distance) << " [km] \n";
+        std::cout << "\tLink: " << generateGoogleMapsLink(it->GPSCords) << "\n";
+        std::cout << "\n";
         counter++;
     }
 
-    // TODO: Compute your location
-    // TODO: Generate Google Map link
-    // TODO: Write output to file "out.txt"
-    writeOutputFile();
+    // TODO: Compute UE location
+    
+    // Dummy location -> TODO: Replace this with actual value
+    T_GPS UELocation;
+    UELocation.latitude = 0.0;
+    UELocation.longitude = 0.0;
+    
+    writeOutputFile( generateGoogleMapsLink(UELocation) );
 
     return 0;   
+}
+
+
+/**
+ * Crafts link to maps.google.com.
+ *
+ * T_GPS coords Coordinates pointing to location to be marked on map.
+ *
+ * return std::string Google map link in required format. 
+ */
+std::string generateGoogleMapsLink(T_GPS coords)
+{
+    return GOOGLE_MAPS_URL_BASE + std::to_string(coords.latitude) + "," + std::to_string(coords.longitude);
 }
 
 
@@ -97,6 +102,9 @@ double helper_calculateAntennaCorrectionFactor(double transmissionFrequency, dou
  *
  * Based on antenna height, power and signal calculates distance of user 
  * equipment to the station.
+ *
+ * Magical constants used come from the Wikipedia formula, to be found here:
+ * https://en.wikipedia.org/wiki/Hata_model
  *
  * double antennaHeight Specified in meters.
  * double power Power transmitted in dB (needs to be converted to dBm).
@@ -223,19 +231,21 @@ double getDegreesOnly(double degrees, double minutes, double seconds)
 
 /**
  * Loads BTS records from BTS.csv input file.
- * TODO: Make this return vector of records.
- * TODO: Remove debug commented code.
+ *
+ * std::string BTSFile Path to input BTS.csv file
+ *
  * TODO: Do not store values that are not used.
+ * return std::vector<T_Station> Vector of T_Station records.
  */
-void loadBTSRecords()
+std::vector<T_Station> loadBTSRecords(std::string BTSFile)
 {
-    std::ifstream file(btsCsvFile);
+    std::ifstream file(BTSFile);
+    std::vector<T_Station> allStations;
 
+    // Input file cannot be read, return empty vector
     if (!file.is_open())
     {
-        // TODO: Terminate with proper code
-        std::cerr << "Unable to open input csv file.\n";
-        exit(11);
+        return allStations;
     }
 
     std::string lineValue;
@@ -287,26 +297,29 @@ void loadBTSRecords()
             }
         }
 
-        AllStations.push_back(station);
+        allStations.push_back(station);
     }
+
+    return allStations;
 }
 
 
 /**
  * Load records from input bts file.
  *
- * TODO: Remove dependency on global data structures
- * TODO: Make it return vector of T_NearestStation
+ * std::string csvFile Path to input csv file.
+ *
+ * return std::vector<T_NearestStation> Vector of nearest stations
  */
-void loadNearestStations()
+std::vector<T_NearestStation> loadNearestStations(std::string csvFile)
 {
     std::ifstream file(csvFile);
+    std::vector<T_NearestStation> nearestStations;
 
+    // File cannot be read, return no records.
     if(!file.is_open())
     {
-        // TODO Terminate with proper code
-        std::cerr << "Unable to open input csv file.\n";
-        exit(11);
+        return nearestStations;
     }
 
     std::string lineValue;
@@ -371,14 +384,7 @@ void loadNearestStations()
         nearestStations.push_back(station);
     }
 
-    // Debug dump nearest stations
-    /*std::cout << "Iterating over nearest stations structure \n";
-    for (std::vector<T_NearestStation>::iterator it = nearestStations.begin(); it != nearestStations.end(); ++it)
-    {
-        std::cout << "LAC: " << std::to_string(it->lac) << " CID: " << std::to_string(it->cid) << " RSSI: " << std::to_string(it->rssi);
-        std::cout << " SIGNAL:"  << std::to_string(it->signal) << " ANTH: " << std::to_string(it->antH) << " Power:" << std::to_string(it->power);
-        std::cout << "\n";
-    }*/
+    return nearestStations;
 }
 
 
@@ -387,50 +393,30 @@ void loadNearestStations()
  *
  * int argc Number of parameters with which the application was called.
  * char** argv Array of parameters provided on input.
+ *
+ * return std::string Input csv file passed from parameters.
  */
-void processParameters(int argc, char *argv[])
+std::string processParameters(int argc, char *argv[])
 {
     // Terminate execution if no path to input file is provided.
     if (argc < 2)
     {
-        terminateExecutionWith(1, 
-            "Please specify input file as the first parameter.");
+        return std::string(EMPTY_STRING);
     }
 
-    csvFile = std::string(argv[1]);
+    return std::string(argv[1]);
 }
 
 
 /**
- * Terminates program execution.
+ * Writes string data to output file.
  *
- * Prints string message on stderr and terminates program execution with 
- * given exit code.
- *
- * int exitCode Numeric exit code with which program terminates.
- * std::string message Message displayed before termination (may be empty).
+ * std::string data Data to be written to output file.
  */
-void terminateExecutionWith(int exitCode, std::string message)
+void writeOutputFile(std::string data)
 {
-    if (!message.empty())
-    {
-        std::cerr << message << "\n";
-    }
-
-    // TODO: If necessary, execute cleanup here. 
-
-    exit(exitCode);
-}
-
-/**
- *
- */
-void writeOutputFile(/* DATA PLACEHOLDER */)
-{
-    std::string data = "Dummy placeholder data.";
-
     std::ofstream outFile;
-    outFile.open("out.txt");
+    outFile.open(BMS_OUTPUT_FILE);
     outFile << data;
     outFile.close(); 
 }
@@ -440,3 +426,30 @@ void showHelp()
 {
     // TODO: Implement this (or not)
 }
+
+
+
+
+
+// TODO: Remove this if it is not used by the end of the Saturday 2017-11-25
+/**
+ * Terminates program execution.
+ *
+ * Prints string message on stderr and terminates program execution with 
+ * given exit code.
+ *
+ * int exitCode Numeric exit code with which program terminates.
+ * std::string message Message displayed before termination (may be empty).
+ */
+//void terminateExecutionWith(int exitCode, std::string message = "");
+/*void terminateExecutionWith(int exitCode, std::string message)
+{
+    if (!message.empty())
+    {
+        std::cerr << message << "\n";
+    }
+
+    // TODO: If necessary, execute cleanup here. 
+
+    exit(exitCode);
+}*/
