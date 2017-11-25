@@ -421,13 +421,6 @@ void writeOutputFile(std::string data)
     outFile.close(); 
 }
 
-// TODO: If this gets implemented, work in header commentary
-void showHelp()
-{
-    // TODO: Implement this (or not)
-}
-
-
 
 
 
