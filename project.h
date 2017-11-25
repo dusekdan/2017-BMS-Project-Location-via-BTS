@@ -69,7 +69,12 @@ typedef struct
 	uint16_t lac;
 	std::string GPS;
 	T_GPS GPSCords;
-	double distance; 
+	double distance;
+
+	// Calculated values
+	double horizontalDistance;
+	double verticalDistance;
+
 } T_MatchedStation;
 
 

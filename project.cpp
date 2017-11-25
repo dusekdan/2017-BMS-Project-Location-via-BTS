@@ -35,6 +35,20 @@ int main(int argc, char *argv[])
 
     std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, allStations); // TODO: What if no matching stations are found?
 
+    // TODO: Compute UE location
+    // - 
+    for (std::vector<T_MatchedStation>::iterator it = matchingStations.begin(); it != matchingStations.end(); ++it)
+    {
+        double latCord = it->GPSCords.latitude;
+        
+        double verticalDistance = 111132.92 - (559.82 * (cos((2*latCord) * M_PI / 180.0))) + (1.175 * cos(((4*latCord)*M_PI)/180.0)) - (0.0023 * cos(((6*latCord) * M_PI)/180.0));
+        double horizontalDistance = 111412.84*cos(latCord*M_PI/180.0) - (93.5 * cos((3*latCord)*M_PI/180.0)) + (0.118 * cos((5*latCord)*M_PI/180.0));  
+
+        it->verticalDistance = (double) ((it->distance*1000)/verticalDistance);
+        it->horizontalDistance = (double) ((it->distance*1000)/horizontalDistance);
+
+    }
+
 
     /* DEBUG Returned matching stations */
     int counter = 0;
@@ -44,11 +58,12 @@ int main(int argc, char *argv[])
         std::cout << "\tGPS struct: latitude=" << std::to_string(it->GPSCords.latitude) << ", longitude=" << std::to_string(it->GPSCords.longitude) << "\n";
         std::cout << "\tDistance: " << std::to_string(it->distance) << " [km] \n";
         std::cout << "\tLink: " << generateGoogleMapsLink(it->GPSCords) << "\n";
+        std::cout << "\tVertical distance: " << it->verticalDistance << "\n";
+        std::cout << "\tHorizontal distance: " << it->horizontalDistance << "\n";
         std::cout << "\n";
         counter++;
     }
 
-    // TODO: Compute UE location
     
     // Dummy location -> TODO: Replace this with actual value
     T_GPS UELocation;
