@@ -142,7 +142,6 @@ T_Point getAverageMidPoint(T_Elipse elipse01, T_Elipse elipse02)
 }
 
 
-// TODO: Ensure it works even for locations close to 0,0
 /**
  * Creates elipse representation of a T_MatchedStation.
  *
