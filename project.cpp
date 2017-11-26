@@ -5,8 +5,6 @@
  */
 #include "project.h"
 
-// TODO: Consider reading signal, antH and power as double. Or will it always be int?!
-
 int main(int argc, char *argv[])
 {
     // Input files 
@@ -15,7 +13,7 @@ int main(int argc, char *argv[])
     if (inputFile.compare(EMPTY_STRING) == 0)
     {
         std::cerr << "Please specify input file as the first parameter.\n";
-        return 1;
+        return EXIT_FAILURE_PARAMS;
     }
 
     // Load information about stations
@@ -23,20 +21,48 @@ int main(int argc, char *argv[])
     if (nearestStations.empty())
     {
         std::cerr << "Input file could not be opened, or error occured while reading it. Fix the file and try again, please.\n";
-        return 2;
+        return EXIT_FAILURE_INPUTFILE;
     }
 
     std::vector<T_Station> allStations = loadBTSRecords(BTSFile);
     if (allStations.empty())
     {
         std::cerr << "Input file BTS.csv could not be opened, or error occured while reading it. Fix the file and try again, please.\n";
-        return 2;
+        return EXIT_FAILURE_INPUTFILE;
     }
 
-    std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, allStations); // TODO: What if no matching stations are found?
+    std::vector<T_MatchedStation> matchingStations = prepareMatchingStation(nearestStations, allStations);
+    
+    T_GPS UELocation = calculateUELocation(matchingStations);
+    if (UELocation.latitude <= -1 && UELocation.longitude <= -1)
+    {
+        std::cerr << "You need at least 3 stations to determine location precisely.\n";
+        return EXIT_FAILURE_CALCULATION;
+    }
+    
+    writeOutputFile( generateGoogleMapsLink(UELocation) );
 
-    // TODO: Compute UE location
-    // - 
+    return EXIT_SUCCESS;   
+}
+
+
+/*
+ * Calculates User Equipment location.
+ *
+ * Approximates location of User Equipment using three elipses and their 
+ * average midpoints. 
+ * Conversion of to 'degree-distance' source:
+ * https://en.wikipedia.org/wiki/Geographic_coordinate_system.
+ *
+ * std::vector<T_MatchedStation> matchingStations Vector of BTS stations.
+ *
+ * return T_GPS Location of User equipment on success, -1,-1 on failure.
+ */
+T_GPS calculateUELocation(std::vector<T_MatchedStation> matchingStations)
+{
+    T_GPS UELocation;
+
+    // Calculate 'degree-distance' for relevant stations
     for (std::vector<T_MatchedStation>::iterator it = matchingStations.begin(); it != matchingStations.end(); ++it)
     {
         double latCord = it->GPSCords.latitude;
@@ -46,69 +72,107 @@ int main(int argc, char *argv[])
 
         it->verticalDistance = (double) ((it->distance*1000)/verticalDistance);
         it->horizontalDistance = (double) ((it->distance*1000)/horizontalDistance);
-
     }
 
-
-    /* DEBUG Returned matching stations */
-    int counter = 0;
-    for(std::vector<T_MatchedStation>::iterator it = matchingStations.begin(); it != matchingStations.end(); ++it)
+    // Calculation can not be done, return false-y value
+    if (matchingStations.size() < 3)
     {
-        std::cout << "Relevant station " << std::to_string(counter)  << " CID " << it->cid << " and gps for the doubtful " << it->GPS << "\n";
-        std::cout << "\tGPS struct: latitude=" << std::to_string(it->GPSCords.latitude) << ", longitude=" << std::to_string(it->GPSCords.longitude) << "\n";
-        std::cout << "\tDistance: " << std::to_string(it->distance) << " [km] \n";
-        std::cout << "\tLink: " << generateGoogleMapsLink(it->GPSCords) << "\n";
-        std::cout << "\tVertical distance: " << it->verticalDistance << "\n";
-        std::cout << "\tHorizontal distance: " << it->horizontalDistance << "\n";
-        std::cout << "\n";
-        counter++;
+        UELocation.latitude = -1;
+        UELocation.longitude = -1;
+        return UELocation;
     }
 
-    
-    // Dummy location -> TODO: Replace this with actual value
-    T_GPS UELocation;
-    UELocation.latitude = 0.0;
-    UELocation.longitude = 0.0;
-    
-    writeOutputFile( generateGoogleMapsLink(UELocation) );
+    // Define elipses by its 4 point and midpoint
+    T_Elipse elipse01 = createElipse(matchingStations.at(0));
+    T_Elipse elipse02 = createElipse(matchingStations.at(1));
+    T_Elipse elipse03 = createElipse(matchingStations.at(2));
 
-    return 0;   
+    // Calculate average mid point for each elipse-elipse combination
+    T_Point midpoint12 = getAverageMidPoint(elipse01, elipse02);    
+    T_Point midpoint23 = getAverageMidPoint(elipse02, elipse03);    
+    T_Point midpoint31 = getAverageMidPoint(elipse03, elipse01);    
+
+    // Average value of all the midpoints is close approximation of UE location
+    double finalLat = (double) (midpoint12.latitude + midpoint23.latitude + midpoint31.latitude) / 3.0;
+    double finalLon = (double) (midpoint12.longitude + midpoint23.longitude + midpoint31.longitude) / 3.0;
+
+    UELocation.latitude = finalLat;
+    UELocation.longitude = finalLon;
+    return UELocation;
 }
 
 
 /**
- * Crafts link to maps.google.com.
+ * Calculates average midpoint for two elipses.
  *
- * T_GPS coords Coordinates pointing to location to be marked on map.
+ * T_Elipse elipse01 First elipse to be used in calculation.
+ * T_Elipse elipse02 Second elipse to be used in calculation.
  *
- * return std::string Google map link in required format. 
+ * return T_Point Average midpoint.
  */
-std::string generateGoogleMapsLink(T_GPS coords)
+T_Point getAverageMidPoint(T_Elipse elipse01, T_Elipse elipse02)
 {
-    return GOOGLE_MAPS_URL_BASE + std::to_string(coords.latitude) + "," + std::to_string(coords.longitude);
+    double midPointLon, midPointLat;
+
+    // Elipse02 is closer to the right    
+    if (elipse01.midPoint.longitude < elipse02.midPoint.longitude)
+    {
+        midPointLon = (double) (elipse02.mostLeft.longitude + elipse01.mostRight.longitude) / 2.0;
+    }
+    else
+    {
+        midPointLon = (double) (elipse01.mostLeft.longitude + elipse02.mostRight.longitude) / 2.0;
+    }
+
+    // Elipse02 is closer to the top
+    if (elipse01.midPoint.latitude < elipse02.midPoint.latitude)
+    {
+        midPointLat = (double) (elipse02.mostBottom.latitude + elipse01.mostTop.latitude) / 2.0;
+    }
+    else
+    {
+        midPointLat = (double) (elipse01.mostBottom.latitude + elipse02.mostTop.latitude) / 2.0;
+    }   
+    
+    T_Point midpoint;
+    midpoint.latitude = midPointLat;
+    midpoint.longitude = midPointLon;
+
+    return midpoint;
 }
 
 
+// TODO: Ensure it works even for locations close to 0,0
 /**
- * Calculates Antenna Correction Factor.
+ * Creates elipse representation of a T_MatchedStation.
  *
- * Based on transmission frequency and mobile antenna height calculates antenna
- * correction factor. This function was used to calculate the AFC at the 
- * beginning and result was used as a constant ANTENNA_CORRECTION_FACTOR. 
+ * T_MatchedStation station Station representation.
  *
- * Magical constants used come from the Wikipedia formula, to be found here:
- * https://en.wikipedia.org/wiki/Hata_model
- *
- * double transmissionFrequency Transmission frequency in MHz.
- * double mobileAntennaHeight Mobile station antena length, in meters.
- *
- * return double Antenna Correction Factor.
+ * return T_Elipse 4 points + midpoint representation of elipse.
  */
-double helper_calculateAntennaCorrectionFactor(double transmissionFrequency, double mobileAntennaHeight)
+T_Elipse createElipse(T_MatchedStation station)
 {
-    // Logarithm with a base of 10 precalculated for optimization purposes 
-    double log10Freq = log10(transmissionFrequency);
-    return (0.8 + ((1.1 * log10Freq - 0.7) * mobileAntennaHeight) - 1.56 * log10Freq);
+    T_Elipse elipse;
+    T_Point mostLeft, mostRight, mostTop, mostBottom, midPoint;
+    
+    mostLeft.latitude = station.GPSCords.latitude;
+    mostLeft.longitude = station.GPSCords.longitude - station.horizontalDistance; 
+    mostRight.latitude = station.GPSCords.latitude;
+    mostRight.longitude = station.GPSCords.longitude + station.horizontalDistance;
+    mostTop.latitude = station.GPSCords.latitude + station.verticalDistance;
+    mostTop.longitude = station.GPSCords.longitude;
+    mostBottom.latitude = station.GPSCords.latitude - station.verticalDistance;
+    mostBottom.longitude = station.GPSCords.longitude;
+    midPoint.latitude = station.GPSCords.latitude;
+    midPoint.longitude = station.GPSCords.longitude;
+
+    elipse.mostLeft = mostLeft;
+    elipse.mostRight = mostRight;
+    elipse.mostTop = mostTop;
+    elipse.mostBottom = mostBottom;
+    elipse.midPoint = midPoint;
+    
+    return elipse;
 }
 
 
@@ -175,9 +239,24 @@ std::vector<T_MatchedStation> prepareMatchingStation(std::vector<T_NearestStatio
                 newStation.lac = it->lac;
                 newStation.GPS = it->GPS;
                 newStation.GPSCords = convertStringGPS(it->GPS);
-                newStation.distance = calculateDistanceToStation((double) nsIt->antH, (double) nsIt->power, (double) nsIt->signal);
+                newStation.distance = calculateDistanceToStation(nsIt->antH, nsIt->power, nsIt->signal);
 
-                relevantStations.push_back(newStation);
+                // Store average values for same stations
+                bool skipPushBack = false;
+                for (std::vector<T_MatchedStation>::iterator it = relevantStations.begin(); it != relevantStations.end(); ++it)
+                {
+                    if (it->GPS == newStation.GPS)
+                    {
+                        double meanDistance = (double) ((newStation.distance + it->distance) / 2.0);
+                        it->distance = meanDistance;
+                        skipPushBack = true;
+                    }
+                }
+                
+                if (!skipPushBack)
+                {
+                    relevantStations.push_back(newStation);
+                }
             }
         }
     }
@@ -249,7 +328,6 @@ double getDegreesOnly(double degrees, double minutes, double seconds)
  *
  * std::string BTSFile Path to input BTS.csv file
  *
- * TODO: Do not store values that are not used.
  * return std::vector<T_Station> Vector of T_Station records.
  */
 std::vector<T_Station> loadBTSRecords(std::string BTSFile)
@@ -291,14 +369,13 @@ std::vector<T_Station> loadBTSRecords(std::string BTSFile)
                     station.lac = atoi(token.c_str());
                 break;
                 case 2:
-                    station.bch = atoi(token.c_str());
+                    // Do not store.
                 break;
                 case 3:
-                    // Do not store localization information as there is no use for it
+                    // Do not store.
                 break;
                 case 4:
                     station.GPS = token;    
-                    // Calculate decimal values for GPS
                 break;
             }
 
@@ -353,35 +430,31 @@ std::vector<T_NearestStation> loadNearestStations(std::string csvFile)
         std::istringstream iss(lineValue);
         std::string token;
         int lineOffset = 0;
+        char *pEnd;
         T_NearestStation station;
         
         while (getline(iss, token, ';'))
         {
             switch (lineOffset)
             {
-                // LAC
-                case 0:
+                
+                case 0: // LAC
                     station.lac = atoi(token.c_str());
                 break;
-                // CID
-                case 1:
+                case 1: // CID
                     station.cid = atoi(token.c_str());
                 break;
-                // RSSI
-                case 2:
-                    station.rssi = atoi(token.c_str()); // TODO: Maybe omit this as it is not used (yet)
+                case 2: // RSSI
+                    // Do not store.
                 break;
-                // Signal
-                case 3:
-                    station.signal = atoi(token.c_str());
+                case 3: // Signal
+                    station.signal = strtod(token.c_str(), &pEnd);
                 break;
-                // Ant H
-                case 4:
-                    station.antH = atoi(token.c_str());
+                case 4: // Ant H
+                    station.antH = strtod(token.c_str(), &pEnd);
                 break;
-                // Power
-                case 5:
-                    station.power = atoi(token.c_str());
+                case 5: // Power
+                    station.power = strtod(token.c_str(), &pEnd);
                 break;
             }
 
@@ -395,7 +468,7 @@ std::vector<T_NearestStation> loadNearestStations(std::string csvFile)
                 lineOffset = 0;
             }
         }
-        
+
         nearestStations.push_back(station);
     }
 
@@ -424,6 +497,19 @@ std::string processParameters(int argc, char *argv[])
 
 
 /**
+ * Crafts link to maps.google.com.
+ *
+ * T_GPS coords Coordinates pointing to location to be marked on map.
+ *
+ * return std::string Google map link in required format. 
+ */
+std::string generateGoogleMapsLink(T_GPS coords)
+{
+    return GOOGLE_MAPS_URL_BASE + std::to_string(coords.latitude) + "," + std::to_string(coords.longitude);
+}
+
+
+/**
  * Writes string data to output file.
  *
  * std::string data Data to be written to output file.
@@ -437,27 +523,40 @@ void writeOutputFile(std::string data)
 }
 
 
-
-
-// TODO: Remove this if it is not used by the end of the Saturday 2017-11-25
 /**
- * Terminates program execution.
+ * Calculates Antenna Correction Factor.
  *
- * Prints string message on stderr and terminates program execution with 
- * given exit code.
+ * Based on transmission frequency and mobile antenna height calculates antenna
+ * correction factor. This function was used to calculate the AFC at the 
+ * beginning and result was used as a constant ANTENNA_CORRECTION_FACTOR. 
  *
- * int exitCode Numeric exit code with which program terminates.
- * std::string message Message displayed before termination (may be empty).
+ * Magical constants used come from the Wikipedia formula, to be found here:
+ * https://en.wikipedia.org/wiki/Hata_model
+ *
+ * double transmissionFrequency Transmission frequency in MHz.
+ * double mobileAntennaHeight Mobile station antena length, in meters.
+ *
+ * return double Antenna Correction Factor.
  */
-//void terminateExecutionWith(int exitCode, std::string message = "");
-/*void terminateExecutionWith(int exitCode, std::string message)
+double helper_calculateAntennaCorrectionFactor(double transmissionFrequency, double mobileAntennaHeight)
 {
-    if (!message.empty())
-    {
-        std::cerr << message << "\n";
-    }
+    // Logarithm with a base of 10 precalculated for optimization purposes 
+    double log10Freq = log10(transmissionFrequency);
+    return (0.8 + ((1.1 * log10Freq - 0.7) * mobileAntennaHeight) - 1.56 * log10Freq);
+}
 
-    // TODO: If necessary, execute cleanup here. 
 
-    exit(exitCode);
-}*/
+/**
+ * Prints out points of which elipse consists.
+ *
+ * T_Elipse elipse Elipse to be printed out.
+ */
+void helper_printElipsePoints(T_Elipse elipse)
+{
+    std::cout << "[DEBUG] Printing elipse:\n"; 
+    std::cout << "\tMid [LAT,LON]: [" << elipse.midPoint.latitude << "," << elipse.midPoint.longitude << "]\n";
+    std::cout << "\tTop [LAT,LON]: [" << elipse.mostTop.latitude << "," << elipse.mostTop.longitude << "]\n";
+    std::cout << "\tBottom [LAT,LON]: [" << elipse.mostBottom.latitude << "," << elipse.mostBottom.longitude << "]\n";
+    std::cout << "\tLeft [LAT,LON]: [" << elipse.mostLeft.latitude << "," << elipse.mostLeft.longitude << "]\n";
+    std::cout << "\tRight [LAT,LON]: [" << elipse.mostRight.latitude << "," << elipse.mostRight.longitude << "]\n";
+}
